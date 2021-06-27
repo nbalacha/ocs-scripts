@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Prerequisites:
-# An OCP cluster with OCS 4.8 installed
-# 
+# An OCP cluster with OCS 4.8  or later installed
+# cluster-admin permissions
 
 
 DEFAULT_SC=gp2
@@ -10,7 +10,7 @@ OCS_STORAGECLASS=my-storageclass
 
 # Create a StorageCluster with additional OSDs for the replica 1 pools
 
-function create_storagecluster () {
+function create_storagecluster {
 
 printf "Creating StorageCluster with extra OSDs\n"
 
@@ -46,7 +46,7 @@ spec:
           requests:
             storage: 100Gi
     portable: true
-    replica: 1 
+    replica: 1
   - name: r1-deviceset
     count: 1
     deviceClass: rep1
@@ -60,7 +60,7 @@ spec:
           requests:
             storage: 100Gi
     portable: true
-    replica: 1 
+    replica: 1
   - name: r2-deviceset
     count: 1
     deviceClass: rep2
@@ -74,7 +74,7 @@ spec:
           requests:
             storage: 100Gi
     portable: true
-    replica: 1 
+    replica: 1
   - name: ocs-deviceset
     count: 1
     deviceClass: std
@@ -93,13 +93,13 @@ EOF
 
 }
 
-function check_storagecluster_ready () { 
+function check_storagecluster_ready {
 	i=0
     printf "Waiting for the StorageCluster to be ready\n"
 
 	while [[ $i -lt 10 ]]
 	do
- 	  status=$(oc get storagecluster ocs-storagecluster -o jsonpath='{ .status.phase }') 
+ 	  status=$(oc get storagecluster ocs-storagecluster -o jsonpath='{ .status.phase }')
   		if [[ "$status" = "Ready" ]]; then
     	  break
   		fi
@@ -116,7 +116,7 @@ function check_storagecluster_ready () {
 
 
 
-function create_replica1_pools () {
+function create_replica1_pools {
 
 printf "Creating replica 1 pools\n"
 
@@ -134,7 +134,7 @@ spec:
   erasureCoded:
     codingChunks: 0
     dataChunks: 0
-  failureDomain: host 
+  failureDomain: host
   mirroring: {}
   parameters:
     compression_mode: ""
@@ -160,7 +160,7 @@ spec:
   erasureCoded:
     codingChunks: 0
     dataChunks: 0
-  failureDomain: host 
+  failureDomain: host
   mirroring: {}
   parameters:
     compression_mode: ""
@@ -186,7 +186,7 @@ spec:
   erasureCoded:
     codingChunks: 0
     dataChunks: 0
-  failureDomain: host 
+  failureDomain: host
   mirroring: {}
   parameters:
     compression_mode: ""
@@ -201,7 +201,7 @@ EOF
 }
 
 
-function create_replica1_storageclass () {
+function create_replica1_storageclass {
 
 # The regions here are for AWS. Please change to the correct values for your cluster
 printf "Creating a topology constrained StorageClass mapping to the replica 1 pools\n"
@@ -222,7 +222,7 @@ parameters:
   csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
   csi.storage.k8s.io/provisioner-secret-namespace: openshift-storage
   imageFeatures: layering
-  imageFormat: "2" 
+  imageFormat: "2"
   pool: ocs-storagecluster-cephblockpool
   topologyConstrainedPools: |
      [{"poolName":"rpool-0",
@@ -237,7 +237,7 @@ parameters:
        "domainSegments":[
          {"domainLabel":"region","value":"us-east-2"},
          {"domainLabel":"zone","value":"us-east-2c"}]}
-     ]   
+     ]
 provisioner: openshift-storage.rbd.csi.ceph.com
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
@@ -245,7 +245,7 @@ EOF
 }
 
 
-function enable_csi_topology_feature() {
+function enable_csi_topology_feature {
 
 	printf "Enabling the ceph-csi topology feature\n"
 	#Patch rbacs
@@ -268,10 +268,10 @@ function enable_csi_topology_feature() {
 }
 
 
-function setup_ocs () {
+function setup_ocs {
   oc project openshift-storage
-#  create_storagecluster
-#  check_storagecluster_ready
+  create_storagecluster
+  check_storagecluster_ready
 
   # Enable the topology feature after creating the StorageCluster as the ceph-csi pods are
   # not started until a StorageCluster is created
@@ -285,7 +285,7 @@ function setup_ocs () {
 # The other option is to install the DataStax operator
 # available in the OperatorHub
 
-function setup_cassandra () {
+function setup_cassandra {
 
 	printf "Setting up Cassandra to use the replica 1 pools\n"
 	oc new-project cassandra
@@ -353,7 +353,7 @@ spec:
         lifecycle:
           preStop:
             exec:
-              command: 
+              command:
               - /bin/sh
               - -c
               - nodetool drain
@@ -374,14 +374,14 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
-        readinessProbe:
-          exec:
-            command:
-            - /bin/bash
-            - -c
-            - /ready-probe.sh
-          initialDelaySeconds: 15
-          timeoutSeconds: 5
+#        readinessProbe:
+#          exec:
+#            command:
+#            - /bin/bash
+#            - -c
+#            - /ready-probe.sh
+#         initialDelaySeconds: 15
+#          timeoutSeconds: 5
         # These volume mounts are persistent. They are like inline claims,
         # but not exactly because the names need to match exactly one of
         # the stateful pod volumes.
@@ -404,23 +404,28 @@ EOF
 
 }
 
-function cleanup () {
+function cleanup {
 
 	printf "Cleaning up\n"
-	oc delete statefulset cassandra
-	oc delete service cassandra
+	oc delete statefulset cassandra -n cassandra
+	oc delete service cassandra -n cassandra
+	oc delete pvc cassandra-data-cassandra-0 -n cassandra
+	oc delete pvc cassandra-data-cassandra-1 -n cassandra
+	oc delete pvc cassandra-data-cassandra-2 -n cassandra
 
-	oc delete storageclass "$OCS_STORAGECLASS"
-	oc delete cephblockpool rpool-0
-	oc delete cephblockpool rpool-1
-	oc delete cephblockpool rpool-2
-	oc delete storagecluster ocs-storagecluster
+	for i in $(oc get pv |grep my-storageclass| awk '{print $1}'); do oc delete pv $i; done
+
+	oc delete storageclass "$OCS_STORAGECLASS" -n opernshift-storage
+#	oc delete cephblockpool rpool-0 -n openshift-storage
+#	oc delete cephblockpool rpool-1 -n openshift-storage
+#	oc delete cephblockpool rpool-2 -n openshift-storage
+	oc delete storagecluster ocs-storagecluster -n openshift-storage
 }
 
-setup_ocs
-setup_cassandra
+#setup_ocs
+#setup_cassandra
 
-#cleanup
+cleanup
 
 echo 'All Done!'
 
