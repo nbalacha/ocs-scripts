@@ -10,6 +10,14 @@ OCS_STORAGECLASS=my-storageclass
 
 # Create a StorageCluster with additional OSDs for the replica 1 pools
 
+function label_ocs_nodes {
+
+	for i in $(oc get nodes |grep worker|awk '{print $1}') ;
+	do
+		oc label nodes "$i" cluster.ocs.openshift.io/openshift-storage=''
+	done
+}
+
 function create_storagecluster {
 
 printf "Creating StorageCluster with extra OSDs\n"
@@ -44,7 +52,7 @@ spec:
         volumeMode: Block
         resources:
           requests:
-            storage: 100Gi
+            storage: 10Gi
     portable: true
     replica: 1
   - name: r1-deviceset
@@ -58,7 +66,7 @@ spec:
         volumeMode: Block
         resources:
           requests:
-            storage: 100Gi
+            storage: 10Gi
     portable: true
     replica: 1
   - name: r2-deviceset
@@ -72,7 +80,7 @@ spec:
         volumeMode: Block
         resources:
           requests:
-            storage: 100Gi
+            storage: 10Gi
     portable: true
     replica: 1
   - name: ocs-deviceset
@@ -269,6 +277,7 @@ function enable_csi_topology_feature {
 
 
 function setup_ocs {
+  label_ocs_nodes
   oc project openshift-storage
   create_storagecluster
   check_storagecluster_ready
@@ -282,8 +291,9 @@ function setup_ocs {
 }
 
 
-# The other option is to install the DataStax operator
-# available in the OperatorHub
+# Deploy Cassandra with 3 replicas
+# The other option is to install the DataStax operator which is available
+# in the OperatorHub specifying the storageClass created earlier.
 
 function setup_cassandra {
 
@@ -390,7 +400,6 @@ spec:
           mountPath: /var/lib/cassandra
   # These are converted to volume claims by the controller
   # and mounted at the paths mentioned above.
-  # do not use these in production until ssd GCEPersistentDisk or other ssd pd
   volumeClaimTemplates:
   - metadata:
       name: cassandra-data
@@ -399,7 +408,7 @@ spec:
       storageClassName: "$OCS_STORAGECLASS"
       resources:
         requests:
-          storage: 10Gi
+          storage: 9Gi
 EOF
 
 }
@@ -413,19 +422,19 @@ function cleanup {
 	oc delete pvc cassandra-data-cassandra-1 -n cassandra
 	oc delete pvc cassandra-data-cassandra-2 -n cassandra
 
-	for i in $(oc get pv |grep my-storageclass| awk '{print $1}'); do oc delete pv $i; done
+	for i in $(oc get pv |grep my-storageclass| awk '{print $1}'); do oc delete pv "$i"; done
 
-	oc delete storageclass "$OCS_STORAGECLASS" -n opernshift-storage
-#	oc delete cephblockpool rpool-0 -n openshift-storage
-#	oc delete cephblockpool rpool-1 -n openshift-storage
-#	oc delete cephblockpool rpool-2 -n openshift-storage
+	oc delete storageclass "$OCS_STORAGECLASS"
+	oc delete cephblockpool rpool-0 -n openshift-storage
+	oc delete cephblockpool rpool-1 -n openshift-storage
+	oc delete cephblockpool rpool-2 -n openshift-storage
 	oc delete storagecluster ocs-storagecluster -n openshift-storage
 }
 
-#setup_ocs
-#setup_cassandra
+setup_ocs
+setup_cassandra
 
-cleanup
+#cleanup
 
 echo 'All Done!'
 
