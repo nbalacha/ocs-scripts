@@ -8,6 +8,34 @@
 DEFAULT_SC=gp2
 OCS_STORAGECLASS=my-storageclass
 
+function usage {
+    programname=$0
+
+    echo "usage: $programname deploy|clean|help"
+    echo "  deploy      deploy OCS and Cassandra"
+    echo "  cleanup     remove OCS and Cassandra"
+    echo "  help        display help"
+    exit 1
+}
+
+
+function prereq_check {
+
+  _=$(command -v oc);
+  if [ "$?" != "0" ]; then
+      printf "You don\'t seem to have oc installed.\n"
+      printf "Exiting with code 127...\n"
+      exit 127;
+  fi;
+
+  sub=$(oc get subs -n openshift-storage --ignore-not-found --no-headers -o custom-columns=":metadata.name")
+  if [[ -z "$sub" ]]; then
+        printf "The OCS Operator is not installed on the OCP cluster\n"
+        exit 127
+  fi
+}
+
+
 # Create a StorageCluster with additional OSDs for the replica 1 pools
 
 function label_ocs_nodes {
@@ -18,7 +46,7 @@ function label_ocs_nodes {
 	done
 }
 
-function create_storagecluster {
+function ocs_create_storagecluster {
 
 printf "Creating StorageCluster with extra OSDs\n"
 
@@ -101,30 +129,18 @@ EOF
 
 }
 
-function check_storagecluster_ready {
-	i=0
-    printf "Waiting for the StorageCluster to be ready\n"
+function ocs_wait_storagecluster_ready {
 
-	while [[ $i -lt 10 ]]
-	do
- 	  status=$(oc get storagecluster ocs-storagecluster -o jsonpath='{ .status.phase }')
-  		if [[ "$status" = "Ready" ]]; then
-    	  break
-  		fi
-	  printf "."
-      sleep 30
-      ((i++))
-    done
-
-	if [[ "$status" != "Ready" ]]; then
-    	printf "The Storage Cluster is not ready. Exiting\n"
-		exit 1
-	fi
+    oc wait storagecluster/ocs-storagecluster --for=condition=Available --timeout=300s -n openshift-storage
+    status=$(oc get storagecluster ocs-storagecluster -o jsonpath='{ .status.phase }')
+    if [[ "$status" != "Ready" ]]; then
+        printf "The Storage Cluster is not ready. Exiting\n"
+        exit 1
+    fi
 }
 
 
-
-function create_replica1_pools {
+function ocs_create_replica1_pools {
 
 printf "Creating replica 1 pools\n"
 
@@ -209,7 +225,7 @@ EOF
 }
 
 
-function create_replica1_storageclass {
+function ocs_create_replica1_storageclass {
 
 # The regions here are for AWS. Please change to the correct values for your cluster
 printf "Creating a topology constrained StorageClass mapping to the replica 1 pools\n"
@@ -279,15 +295,15 @@ function enable_csi_topology_feature {
 function setup_ocs {
   label_ocs_nodes
   oc project openshift-storage
-  create_storagecluster
-  check_storagecluster_ready
+  ocs_create_storagecluster
+  ocs_wait_storagecluster_ready
 
   # Enable the topology feature after creating the StorageCluster as the ceph-csi pods are
   # not started until a StorageCluster is created
   enable_csi_topology_feature
 
-  create_replica1_pools
-  create_replica1_storageclass
+  ocs_create_replica1_pools
+  ocs_create_replica1_storageclass
 }
 
 
@@ -431,10 +447,29 @@ function cleanup {
 	oc delete storagecluster ocs-storagecluster -n openshift-storage
 }
 
-setup_ocs
-setup_cassandra
 
-#cleanup
+prereq_check
+
+case $1 in
+    deploy) deploy=true ;;
+    cleanup) cleanup=true ;;
+    help) usage;;
+    *) echo "Unknown parameter passed: $1"; usage; exit 1 ;;
+esac
+
+
+if [ "$deploy" = true ]; then
+    printf "Deploying OCS and Storage Cluster and Cassandra Cluster!\n"
+    setup_ocs
+    setup_cassandra
+    exit
+fi
+
+if [ "$cleanup" = true ]; then
+    printf "Cleanup!\n"
+    cleanup
+fi
+
 
 echo 'All Done!'
 
