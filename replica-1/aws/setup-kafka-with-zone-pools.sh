@@ -9,14 +9,41 @@ DEFAULT_SC=gp2
 OCS_STORAGECLASS=my-storageclass
 REGION=us-east-2
 
-programname=$0
+
+
 
 function usage {
+    programname=$0
+
     echo "usage: $programname deploy|clean|help"
     echo "  deploy      deploy OCS and Kafka"
     echo "  cleanup     remove OCS and Kafka"
     echo "  help        display help"
     exit 1
+}
+
+
+function prereq_check {
+
+  _=$(command -v oc);
+  if [ "$?" != "0" ]; then
+	  printf "You don\'t seem to have oc installed.\n"
+      printf "Exiting with code 127...\n"
+      exit 127;
+  fi;
+
+  sub=$(oc get subs -n openshift-storage --ignore-not-found --no-headers -o custom-columns=":metadata.name")
+  if [[ -z "$sub" ]]; then
+		printf "The OCS Operator is not installed on the OCP cluster\n"
+		exit 127
+  fi
+
+  sub=$(oc get subs -n openshift-operators --ignore-not-found --no-headers -o custom-columns=":metadata.name" | grep amq-streams)
+  if [[ -z "$sub" ]]; then
+		printf -- "The AMQ Streams Operator is not installed on the OCP cluster\n"
+		exit 127
+  fi
+  echo "All done!"
 }
 
 
@@ -287,7 +314,7 @@ function ocs_create_replica1_storageclasses {
 printf "Creating storageclasses\n"
 
 cat <<EOF | oc apply -f -
-allowVolumeExpansion: false
+allowVolumeExpansion: true
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -315,7 +342,7 @@ allowedTopologies:
 EOF
 
 cat <<EOF | oc apply -f -
-allowVolumeExpansion: false
+allowVolumeExpansion: true
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -343,7 +370,7 @@ allowedTopologies:
 EOF
 
 cat <<EOF | oc apply -f -
-allowVolumeExpansion: false
+allowVolumeExpansion: true
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -420,7 +447,7 @@ spec:
       volumes:
       - id: 0
         type: persistent-claim
-        size: 10Gi
+        size: 50Gi
         deleteClaim: false
         overrides:
           - broker: 0
@@ -452,6 +479,7 @@ function teardown_kafka {
 		oc -n kafka delete pvc data-0-my-kafka-cluster-kafka-$i
 		oc -n kafka delete pvc data-my-kafka-cluster-zookeeper-$i
 	done
+	oc delete ns kafka
 }
 
 
@@ -470,6 +498,7 @@ function cleanup {
 	teardown_ocs
 }
 
+prereq_check
 
 case $1 in
     deploy) deploy=true ;;
@@ -480,7 +509,7 @@ esac
 
 
 if [ "$deploy" = true ]; then
-	printf "Deploy!\n"
+	printf "Deploying OCS and Storage CLuster and Kafka Cluster!\n"
 	setup_ocs
 	setup_kafka
 	exit
@@ -491,5 +520,5 @@ if [ "$cleanup" = true ]; then
 	cleanup
 fi
 
+printf "Done!\n"
 exit
-
