@@ -7,6 +7,7 @@
 
 DEFAULT_SC=gp2
 OCS_STORAGECLASS=my-storageclass
+REGION=us-east-2
 
 function usage {
     programname=$0
@@ -38,7 +39,7 @@ function prereq_check {
 
 # Create a StorageCluster with additional OSDs for the replica 1 pools
 
-function label_ocs_nodes {
+function ocs_label_nodes {
 
 	for i in $(oc get nodes |grep worker|awk '{print $1}') ;
 	do
@@ -80,9 +81,31 @@ spec:
         volumeMode: Block
         resources:
           requests:
-            storage: 10Gi
+            storage: 50Gi
     portable: true
     replica: 1
+    placement: 
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: cluster.ocs.openshift.io/openshift-storage
+              operator: Exists
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values:
+               - "${REGION}a"
+    preparePlacement:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: cluster.ocs.openshift.io/openshift-storage
+              operator: Exists
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values:
+               - "${REGION}a"
   - name: r1-deviceset
     count: 1
     deviceClass: rep1
@@ -94,9 +117,31 @@ spec:
         volumeMode: Block
         resources:
           requests:
-            storage: 10Gi
+            storage: 50Gi
     portable: true
     replica: 1
+    placement: 
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: cluster.ocs.openshift.io/openshift-storage
+              operator: Exists
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values:
+               - "${REGION}b"
+    preparePlacement:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: cluster.ocs.openshift.io/openshift-storage
+              operator: Exists
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values:
+               - "${REGION}b"
   - name: r2-deviceset
     count: 1
     deviceClass: rep2
@@ -108,9 +153,31 @@ spec:
         volumeMode: Block
         resources:
           requests:
-            storage: 10Gi
+            storage: 50Gi
     portable: true
     replica: 1
+    placement: 
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: cluster.ocs.openshift.io/openshift-storage
+              operator: Exists
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values:
+               - "${REGION}c"
+    preparePlacement:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: cluster.ocs.openshift.io/openshift-storage
+              operator: Exists
+            - key: topology.kubernetes.io/zone
+              operator: In
+              values:
+               - "${REGION}c"
   - name: ocs-deviceset
     count: 1
     deviceClass: std
@@ -248,6 +315,7 @@ parameters:
   imageFeatures: layering
   imageFormat: "2"
   pool: ocs-storagecluster-cephblockpool
+  mapOptions: osd_request_timeout=60
   topologyConstrainedPools: |
      [{"poolName":"rpool-0",
        "domainSegments":[
@@ -293,7 +361,7 @@ function enable_csi_topology_feature {
 
 
 function setup_ocs {
-  label_ocs_nodes
+  ocs_label_nodes
   oc project openshift-storage
   ocs_create_storagecluster
   ocs_wait_storagecluster_ready
@@ -316,6 +384,7 @@ function setup_cassandra {
 	printf "Setting up Cassandra to use the replica 1 pools\n"
 	oc new-project cassandra
 
+	oc project cassandra
 	oc create serviceaccount useroot
 	oc adm policy add-scc-to-user anyuid -z useroot
 
@@ -414,6 +483,10 @@ spec:
         volumeMounts:
         - name: cassandra-data
           mountPath: /var/lib/cassandra
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
   # These are converted to volume claims by the controller
   # and mounted at the paths mentioned above.
   volumeClaimTemplates:
@@ -424,14 +497,13 @@ spec:
       storageClassName: "$OCS_STORAGECLASS"
       resources:
         requests:
-          storage: 9Gi
+          storage: 5Gi
 EOF
 
 }
 
-function cleanup {
+function cleanup_cassandra {
 
-	printf "Cleaning up\n"
 	oc delete statefulset cassandra -n cassandra
 	oc delete service cassandra -n cassandra
 	oc delete pvc cassandra-data-cassandra-0 -n cassandra
@@ -439,12 +511,23 @@ function cleanup {
 	oc delete pvc cassandra-data-cassandra-2 -n cassandra
 
 	for i in $(oc get pv |grep my-storageclass| awk '{print $1}'); do oc delete pv "$i"; done
+}
+
+function cleanup_ocs {
 
 	oc delete storageclass "$OCS_STORAGECLASS"
 	oc delete cephblockpool rpool-0 -n openshift-storage
 	oc delete cephblockpool rpool-1 -n openshift-storage
 	oc delete cephblockpool rpool-2 -n openshift-storage
 	oc delete storagecluster ocs-storagecluster -n openshift-storage
+
+}
+
+function cleanup {
+
+	printf "Cleaning up\n"
+	cleanup_cassandra
+	cleanup_ocs
 }
 
 
