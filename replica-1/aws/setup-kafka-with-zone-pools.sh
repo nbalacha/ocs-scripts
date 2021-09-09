@@ -442,6 +442,13 @@ spec:
       transaction.state.log.min.isr: 2
       log.message.format.version: "2.7"
       inter.broker.protocol.version: "2.7"
+      strimzi.authorization.global-authorizer.acl.1: permission=allow;topic=*;operations=all
+      strimzi.authorization.global-authorizer.acl.2: permission=allow;group=*;operations=all
+      strimzi.authorization.global-authorizer.acl.3: permission=allow;transactional_id=*;operations=all
+      quota.window.size.seconds: '2'
+      auto.create.topics.enable: 'false'
+      quota.window.num: '30'
+      default.replication.factor: 3
     storage:
       type: jbod
       volumes:
@@ -509,7 +516,7 @@ esac
 
 
 if [ "$deploy" = true ]; then
-	printf "Deploying OCS and Storage CLuster and Kafka Cluster!\n"
+	printf "Deploying OCS and Storage Cluster and Kafka Cluster!\n"
 	setup_ocs
 	setup_kafka
 	exit
